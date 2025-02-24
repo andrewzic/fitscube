@@ -170,9 +170,9 @@ async def create_cube_from_scratch_coro(
             hdu = hdu_list[0]
             data = hdu.data
             on_disk_shape = data.shape
-            assert (
-                data.shape == output_shape
-            ), f"Output shape {on_disk_shape} does not match header {output_shape}!"
+            assert data.shape == output_shape, (
+                f"Output shape {on_disk_shape} does not match header {output_shape}!"
+            )
         return fits.getheader(output_file)
 
     logger.info("Output cube is too large to create in memory. Creating a blank file.")
@@ -212,9 +212,9 @@ async def create_cube_from_scratch_coro(
         hdu = hdu_list[0]
         data = hdu.data
         on_disk_shape = data.shape
-        assert (
-            on_disk_shape == output_shape
-        ), f"Output shape {on_disk_shape} does not match header {output_shape}!"
+        assert on_disk_shape == output_shape, (
+            f"Output shape {on_disk_shape} does not match header {output_shape}!"
+        )
 
     return fits.getheader(output_file)
 
@@ -251,7 +251,8 @@ async def create_output_cube_coro(
     even_spec = np.diff(specs).std() < (1e-4 * unit)
     if not even_spec:
         spequency = "Times" if time_domain_mode else "Frequencies"
-        logger.warning(f"{spequency} are not evenly spaced")
+        msg = f"{spequency} are not evenly spaced"
+        logger.warning(msg)
 
     n_chan = len(specs)
 
@@ -405,7 +406,6 @@ async def parse_specs_coro(
         FileSpequencyInfo: file_specs, specs, missing_chan_idx
     """
     unit = u.s if time_domain_mode else u.Hz
-    spequency = "time" if time_domain_mode else "frequency"
     spequencies = "times" if time_domain_mode else "frequencies"
     if ignore_spec:
         logger.info("Ignoring frequency information")
@@ -420,15 +420,17 @@ async def parse_specs_coro(
         raise ValueError(msg)
 
     if spec_file is not None:
-        logger.info("Reading  from %s", spec_file)
+        msg = f"Reading from {spec_file}"
+        logger.info(msg)
         file_specs = np.loadtxt(spec_file) * unit
-        assert (
-            len(file_specs) == len(file_list)
-        ), f"Number of {spequencies} in {spec_file} ({len({file_specs})}) does not match number of images ({len(file_list)})"
+        assert len(file_specs) == len(file_list), (
+            f"Number of {spequencies} in {spec_file} ({len({file_specs})}) does not match number of images ({len(file_list)})"
+        )
         missing_chan_idx = np.zeros(len(file_list)).astype(bool)
 
     else:
-        logger.info(f"Reading {spequency} from FITS files")
+        msg = f"Reading {spequencies} from list"
+        logger.info(msg)
         first_header = fits.getheader(file_list[0])
         if "SPECSYS" not in first_header:
             logger.warning("SPECSYS not in header(s). Will set to TOPOCENT")
@@ -450,7 +452,8 @@ async def parse_specs_coro(
         specs = file_specs.copy()
 
     if create_blanks:
-        logger.info(f"Trying to create a blank cube with evenly spaced {spequencies}")
+        msg = f"Trying to create a blank cube with evenly spaced {spequencies}"
+        logger.info(msg)
         specs, missing_chan_idx = even_spacing(
             file_specs, time_domain_mode=time_domain_mode
         )
@@ -515,9 +518,9 @@ def get_polarisation(header: fits.Header) -> int:
         zip(wcs.axis_type_names, array_shape[::-1], wcs.wcs.crpix)
     ):
         if ctype == "STOKES":
-            assert (
-                naxis <= 1
-            ), f"Only one polarisation axis is supported - found {naxis}"
+            assert naxis <= 1, (
+                f"Only one polarisation axis is supported - found {naxis}"
+            )
             return int(crpix - 1)
     return 0
 
@@ -662,9 +665,8 @@ async def combine_fits_coro(
     with out_cube.open("rb+") as file_handle:
         for new_channel in new_channels:
             is_missing = missing_chan_idx[new_channel]
-            logger.info(
-                f"Channel {new_channel} missing == {missing_chan_idx[new_channel]}"
-            )
+            msg = f"Channel {new_channel} missing == {is_missing}"
+            logger.info(msg)
             old_channel = new_to_old.get(new_channel)
             if is_missing:
                 old_channel = 0
@@ -794,10 +796,9 @@ def cli() -> None:
         time_domain_mode=time_domain_mode,
     )
 
-    spequency = "times" if time_domain_mode else "frequencies"
     logger.info("Written cube to %s", out_cube)
     np.savetxt(specs_file, specs.to(output_unit).value)
-    logger.info(f"Written {spequency} to %s", specs_file)
+    logger.info(f"Written {spequency} to {specs_file}")
 
 
 if __name__ == "__main__":
