@@ -245,7 +245,7 @@ async def create_output_cube_coro(
 
     # define units if in time or freq domain
     unit = u.s if time_domain_mode else u.Hz
-    CTYPE = "TIME" if time_domain_mode else "FREQ"
+    ctype = "TIME" if time_domain_mode else "FREQ"
 
     old_data, old_header = fits.getdata(old_name, header=True, memmap=True)
     even_spec = np.diff(specs).std() < (1e-4 * unit)
@@ -259,18 +259,26 @@ async def create_output_cube_coro(
     idx = 0
     fits_idx = 3
     if not is_2d:
-        logger.info("Input image is a cube. Looking for FREQ axis.")
+        logger.info(
+            f"Input image is a cube of dimension {len(old_data.shape)}. Looking for FREQ axis."
+        )
         wcs = WCS(old_header)
         # Look for the frequency axis in wcs
         try:
-            idx = wcs.axis_type_names[::-1].index(CTYPE)
-
+            idx = (
+                len(old_data.shape) - 1
+                if time_domain_mode
+                else wcs.axis_type_names[::-1].index(ctype)
+            )
         except ValueError as e:
-            msg = f"No {CTYPE} axis found in WCS."
-
+            msg = f"No {ctype} axis found in WCS."
             raise ValueError(msg) from e
-        fits_idx = wcs.axis_type_names.index(CTYPE) + 1
-        logger.info(f"{CTYPE} axis found at index %s (NAXIS%s)", idx, fits_idx)
+        fits_idx = (
+            len(old_data.shape)
+            if time_domain_mode
+            else wcs.axis_type_names[::-1].index(ctype) + 1
+        )
+        logger.info(f"{ctype} axis found at index {idx} (NAXIS{fits_idx})")
 
     new_header = old_header.copy()
     new_header["NAXIS"] = 3 if is_2d else len(old_data.shape)
@@ -279,7 +287,7 @@ async def create_output_cube_coro(
     new_header[f"CRVAL{fits_idx}"] = specs[0].value
     new_header[f"CDELT{fits_idx}"] = np.median(np.diff(specs)).value
     new_header[f"CUNIT{fits_idx}"] = f"{unit:fits}"
-    new_header[f"CTYPE{fits_idx}"] = CTYPE
+    new_header[f"CTYPE{fits_idx}"] = ctype
 
     if ignore_spec or not even_spec:
         new_header[f"CDELT{fits_idx}"] = 1
@@ -338,7 +346,7 @@ async def read_spec_from_header_coro(
     wcs = WCS(header)
     array_shape = wcs.array_shape
     unit = u.s if time_domain_mode else u.Hz
-    QUANTITY = "DATE-OBS" if time_domain_mode else "REFFREQ"
+    quantity = "DATE-OBS" if time_domain_mode else "REFFREQ"
     spequency = "Time" if time_domain_mode else "Frequency"
     if array_shape is None:
         msg = "WCS does not have an array shape"
@@ -346,19 +354,19 @@ async def read_spec_from_header_coro(
     is_2d = len(array_shape) == 2
     if is_2d:
         try:
-            spec = await asyncio.to_thread(header.get, QUANTITY)
+            spec = await asyncio.to_thread(header.get, quantity)
             if time_domain_mode:
                 spec = utc_to_mjdsec(spec)
             return spec * unit
         except KeyError as e:
-            msg = f"{QUANTITY} not in header. Cannot combine 2D images without {spequency} information."
+            msg = f"{quantity} not in header. Cannot combine 2D images without {spequency} information."
             raise KeyError(msg) from e
     try:
         if "SPECSYS" not in header:
             header["SPECSYS"] = "TOPOCENT"
         wcs = WCS(header)
         if time_domain_mode:
-            spec = await asyncio.to_thread(header.get, QUANTITY)
+            spec = await asyncio.to_thread(header.get, quantity)
             spec = utc_to_mjdsec(spec)
             return spec * unit
 
@@ -762,9 +770,10 @@ def cli() -> None:
         msg = f"Output file {out_cube} already exists. Use --overwrite to overwrite."
         raise FileExistsError(msg)
 
+    spequency = "times" if time_domain_mode else "freqs"
     output_unit = u.s if time_domain_mode else u.Hz
 
-    specs_file = out_cube.with_suffix(f".specs_{output_unit:fits}.txt")
+    specs_file = out_cube.with_suffix(f".{spequency}_{output_unit:fits}.txt")
 
     if specs_file.exists() and not overwrite:
         msg = f"Output file {specs_file} already exists. Use --overwrite to overwrite."
